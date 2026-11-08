@@ -1,0 +1,18 @@
+
+# Archivos generados por Maven
+target/
+
+# Configuraciones privadas de NetBeans
+nbproject/private/
+
+# Archivos compilados de Java
+*.class
+*.log
+
+# Archivos temporales
+*.tmp
+*.bak
+
+# Configuraciones de otros IDE
+.idea/
+.vscode/
