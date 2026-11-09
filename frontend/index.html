@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pollería · Nuevo pedido</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Lora:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/estilos.css">
+</head>
+<body>
+<header class="top">
+  <div class="logo">pollería.</div>
+  <nav><a class="on" href="index.html">Nuevo pedido</a><a href="pedidos.html">Pedidos</a></nav>
+</header>
+<section class="hero">
+  <h1>Toma el pedido del cliente.</h1>
+  <p>Elige los platos, indica el nombre del cliente y confirma.</p>
+</section>
+<main class="wrap">
+  <div>
+    <div class="chips" id="chips"></div>
+    <div id="carta"></div>
+  </div>
+  <aside class="panel">
+    <h2>Tu pedido</h2>
+    <label for="cliente">Nombre del cliente</label>
+    <input id="cliente" placeholder="Ej. María Pérez">
+    <label for="tipo">Tipo</label>
+    <select id="tipo"><option>En el local</option><option>Para llevar</option><option>Delivery</option></select>
+    <label for="nota">Observaciones</label>
+    <input id="nota" placeholder="Sin ají, bien dorado…">
+    <div id="items" style="margin-top:12px"></div>
+    <div class="totales" id="totales"></div>
+    <button class="btn" id="confirmar" style="width:100%;margin-top:14px" disabled>Confirmar pedido</button>
+    <div class="msg" id="msg"></div>
+  </aside>
+</main>
+<script src="js/datos.js"></script>
+<script src="js/api.js"></script>
+<script>
+const cant = {};           // id -> cantidad elegida en la tarjeta
+const carrito = {};        // id -> cantidad en el pedido
+let filtro = "Todo";
+
+function pintarCarta() {
+  const cats = ["Todo", ...new Set(CARTA.map(p => p.categoria))];
+  document.getElementById("chips").innerHTML = cats.map(c =>
+    `<button class="chip ${c===filtro?'on':''}" data-c="${c}">${c==='Todo'?'Toda la carta':c}</button>`).join("");
+  const visibles = cats.slice(1).filter(c => filtro==="Todo" || c===filtro);
+  document.getElementById("carta").innerHTML = visibles.map(c => `
+    <section class="sec"><h2>${c}</h2><div class="grid">
+    ${CARTA.filter(p => p.categoria===c).map(p => `
+      <article class="plato">
+        ${foto(p)}
+        <div class="cuerpo">
+          <div class="tag">${p.etiqueta}</div>
+          <h3>${p.nombre}</h3><p>${p.descripcion}</p>
+          <div class="fila"><span class="precio">${soles(p.precio)}</span>
+            <span><span class="qty"><button data-m="${p.id}">−</button><span id="q${p.id}">${cant[p.id]||1}</span><button data-p="${p.id}">+</button></span>
+            <button class="btn" data-a="${p.id}" style="margin-left:6px;padding:6px 10px">Añadir</button></span>
+          </div>
+        </div>
+      </article>`).join("")}
+    </div></section>`).join("");
+}
+
+function pintarPedido() {
+  const ids = Object.keys(carrito);
+  document.getElementById("items").innerHTML = ids.length ? ids.map(id => {
+    const p = CARTA.find(x => x.id == id), q = carrito[id];
+    return `<div class="item"><div>${q} × ${p.nombre}<small>${soles(p.precio)} c/u · <a href="#" data-r="${id}" style="color:var(--acc)">quitar</a></small></div><b>${soles(p.precio*q)}</b></div>`;
+  }).join("") : `<div class="vacio">Aún no hay platos en el pedido.</div>`;
+  const platos = ids.reduce((s,id)=>s+carrito[id],0);
+  const total = ids.reduce((s,id)=>s+CARTA.find(x=>x.id==id).precio*carrito[id],0);
+  document.getElementById("totales").innerHTML = `
+    <div><span>Cantidad de platos</span><span>${platos}</span></div>
+    <div class="tot"><span>Total</span><span>${soles(total)}</span></div>`;
+  document.getElementById("confirmar").disabled = !platos;
+}
+
+document.addEventListener("click", e => {
+  const d = e.target.dataset;
+  if (d.c) { filtro = d.c; pintarCarta(); }
+  if (d.p) { cant[d.p] = (cant[d.p]||1)+1; document.getElementById("q"+d.p).textContent = cant[d.p]; }
+  if (d.m) { cant[d.m] = Math.max(1,(cant[d.m]||1)-1); document.getElementById("q"+d.m).textContent = cant[d.m]; }
+  if (d.a) { carrito[d.a] = (carrito[d.a]||0)+(cant[d.a]||1); pintarPedido(); }
+  if (d.r) { e.preventDefault(); delete carrito[d.r]; pintarPedido(); }
+});
+
+document.getElementById("confirmar").onclick = async () => {
+  const cliente = document.getElementById("cliente").value.trim();
+  if (!cliente) { document.getElementById("msg").style.color="var(--acc)"; document.getElementById("msg").textContent="Ingresa el nombre del cliente."; return; }
+  
+  //Se retiró el símbolo + para conservar los códigos como cadenas de texto
+  const lineas = Object.keys(carrito).map(id => ({ platoId: id, cantidad: carrito[id] }));
+
+  const pedido = await crearPedido({
+    cliente, tipo: document.getElementById("tipo").value,
+    nota: document.getElementById("nota").value.trim(), lineas
+  });
+  for (const k in carrito) delete carrito[k];
+  document.getElementById("cliente").value = ""; document.getElementById("nota").value = "";
+  pintarPedido();
+  const m = document.getElementById("msg"); m.style.color="var(--ok)";
+  m.innerHTML = `Pedido #${pedido.id} guardado. <a href="pedidos.html?id=${pedido.id}" style="color:var(--acc)">Ver detalle</a>`;
+};
+
+cargarCarta().then(() => { pintarCarta(); pintarPedido(); });
+</script>
+</body>
+</html>

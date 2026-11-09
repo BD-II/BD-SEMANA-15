@@ -134,5 +134,4 @@ public class PlatoDAO {
         // Comprobar si se elimino un documento.
         return resultado.getDeletedCount() > 0;
     }
-
 }

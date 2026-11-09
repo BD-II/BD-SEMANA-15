@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pollería · Pedidos</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Lora:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/estilos.css">
+</head>
+<body>
+<header class="top">
+  <div class="logo">pollería.</div>
+  <nav><a href="index.html">Nuevo pedido</a><a class="on" href="pedidos.html">Pedidos</a></nav>
+</header>
+<main class="pwrap">
+  <section class="lista" id="lista"></section>
+  <section id="detalle"></section>
+</main>
+<script src="js/datos.js"></script>
+<script src="js/api.js"></script>
+<script>
+let PEDIDOS = [];
+let seleccion = +(new URLSearchParams(location.search).get("id")) || null;
+
+const fecha = iso => new Date(iso).toLocaleString("es-PE", { dateStyle: "medium", timeStyle: "short" });
+function calcular(p) {
+  const lineas = p.lineas.map(l => {
+    
+    //Se cambió: const plato = CARTA.find(x => x.id === l.platoId); por lo siguiente
+    //para poder encontrar un producto tanto si su identificador es numérico como si es una cadena de texto.
+    const plato = CARTA.find(x => String(x.id) === String(l.platoId));
+    return { ...l, plato, subtotal: plato.precio * l.cantidad };
+  });
+  return { lineas, platos: lineas.reduce((s,l)=>s+l.cantidad,0), total: lineas.reduce((s,l)=>s+l.subtotal,0) };
+}
+
+function pintarLista() {
+  const pedidos = PEDIDOS.slice().reverse();
+  const cont = document.getElementById("lista");
+  if (!pedidos.length) { cont.innerHTML = `<div class="vacio">Todavía no hay pedidos. <a href="index.html" style="color:var(--acc)">Crear el primero</a>.</div>`; return; }
+  cont.innerHTML = pedidos.map(p => { const c = calcular(p);
+    return `<div class="ped ${p.id===seleccion?'on':''}" data-id="${p.id}">
+      <div class="r1"><span>#${p.id} · ${p.cliente}</span><span>${soles(c.total)}</span></div>
+      <div class="r2"><span>${c.platos} plato(s) · ${fecha(p.fecha)}</span><span class="estado ${p.estado}">${p.estado}</span></div></div>`; }).join("");
+  if (!seleccion) seleccion = pedidos[0].id;
+}
+
+function pintarDetalle() {
+  const cont = document.getElementById("detalle");
+  const p = PEDIDOS.find(x => x.id === seleccion);
+  if (!p) { cont.innerHTML = ""; return; }
+  const c = calcular(p);
+  cont.innerHTML = `<div class="detalle">
+    <h2>Pedido #${p.id}</h2>
+    <div class="meta">
+      <div><small>Cliente</small><b>${p.cliente}</b></div>
+      <div><small>Tipo</small><b>${p.tipo}</b></div>
+      <div><small>Fecha</small><b>${fecha(p.fecha)}</b></div>
+      <div><small>Estado</small><b>${p.estado}</b></div>
+      <div><small>Cantidad de platos</small><b>${c.platos}</b></div>
+      <div><small>Total</small><b>${soles(c.total)}</b></div>
+    </div>
+    ${c.lineas.map(l => `
+      <details class="dp">
+        <summary>
+          ${foto(l.plato)}
+          <div class="t"><b>${l.cantidad} × ${l.plato.nombre}</b><small>${soles(l.plato.precio)} c/u · ${l.plato.categoria}</small></div>
+          <span class="sub">${soles(l.subtotal)}</span>
+        </summary>
+        <div class="cont">
+          <p>${l.plato.descripcion}</p>
+          <b>Ingredientes</b>
+          <div class="ing">${l.plato.ingredientes.map(i=>`<span>${i}</span>`).join("")}</div>
+        </div>
+      </details>`).join("")}
+    ${p.nota ? `<div class="nota"><b>Observaciones:</b> ${p.nota}</div>` : ""}
+    <div class="sumas">
+      ${c.lineas.map(l=>`<div><span>${l.cantidad} × ${l.plato.nombre}</span><span>${soles(l.subtotal)}</span></div>`).join("")}
+      <div class="tot"><span>Total (${c.platos} platos)</span><span>${soles(c.total)}</span></div>
+    </div>
+    <div class="acciones">
+      <button class="btn sec2" data-e="Preparando">Marcar preparando</button>
+      <button class="btn" data-e="Entregado">Marcar entregado</button>
+    </div>
+  </div>`;
+}
+
+document.addEventListener("click", e => {
+  const ped = e.target.closest(".ped");
+  if (ped) { seleccion = +ped.dataset.id; pintarLista(); pintarDetalle(); }
+  const est = e.target.dataset.e;
+  if (est) cambiarEstado(seleccion, est).then(refrescar);
+});
+async function refrescar() { PEDIDOS = await obtenerPedidos(); pintarLista(); pintarDetalle(); }
+cargarCarta().then(refrescar);
+</script>
+</body>
+</html>

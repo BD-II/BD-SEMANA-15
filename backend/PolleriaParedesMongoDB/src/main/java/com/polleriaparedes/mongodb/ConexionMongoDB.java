@@ -15,19 +15,31 @@ public class ConexionMongoDB {
     private static final String URI = "mongodb://127.0.0.1:27017";
     
     //NOMBRE_BD = Nombre de nuestra base de datos de pruebas
-    private static final String NOMBRE_BD = "PolleriaParedes_Catalogo_Pruebas";
+     private static final String BD_PRUEBAS = "PolleriaParedes_Catalogo_Pruebas";
     
     //MongoClient = Cliente utilizado para comunicarse con el servidor.
     private final MongoClient cliente;
     private final MongoDatabase baseDatos;
-
+    
+    // Constructor predeterminado: utiliza la BD de pruebas.
     public ConexionMongoDB() {
+        this(BD_PRUEBAS);
+    }
+
+    // Constructor que permite seleccionar la base de datos.
+    public ConexionMongoDB(String nombreBD) {
+
+        if (nombreBD == null || nombreBD.isBlank()) {
+            throw new IllegalArgumentException(
+                    "El nombre de la base de datos es obligatorio."
+            );
+        }
 
         // Crear el cliente de MongoDB.
         cliente = MongoClients.create(URI);
 
         // Obtener la base de datos.
-        baseDatos = cliente.getDatabase(NOMBRE_BD);
+        baseDatos = cliente.getDatabase(nombreBD);
     }
     
     //getBaseDatos() = Devuelve la referencia a la base de datos.
