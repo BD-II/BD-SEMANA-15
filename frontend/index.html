@@ -1,111 +1,304 @@
 <!DOCTYPE html>
 <html lang="es">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Pollería · Nuevo pedido</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Lora:wght@500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/estilos.css">
-</head>
-<body>
-<header class="top">
-  <div class="logo">pollería.</div>
-  <nav><a class="on" href="index.html">Nuevo pedido</a><a href="pedidos.html">Pedidos</a></nav>
-</header>
-<section class="hero">
-  <h1>Toma el pedido del cliente.</h1>
-  <p>Elige los platos, indica el nombre del cliente y confirma.</p>
-</section>
-<main class="wrap">
-  <div>
-    <div class="chips" id="chips"></div>
-    <div id="carta"></div>
-  </div>
-  <aside class="panel">
-    <h2>Tu pedido</h2>
-    <label for="cliente">Nombre del cliente</label>
-    <input id="cliente" placeholder="Ej. María Pérez">
-    <label for="tipo">Tipo</label>
-    <select id="tipo"><option>En el local</option><option>Para llevar</option><option>Delivery</option></select>
-    <label for="nota">Observaciones</label>
-    <input id="nota" placeholder="Sin ají, bien dorado…">
-    <div id="items" style="margin-top:12px"></div>
-    <div class="totales" id="totales"></div>
-    <button class="btn" id="confirmar" style="width:100%;margin-top:14px" disabled>Confirmar pedido</button>
-    <div class="msg" id="msg"></div>
-  </aside>
-</main>
-<script src="js/datos.js"></script>
-<script src="js/api.js"></script>
-<script>
-const cant = {};           // id -> cantidad elegida en la tarjeta
-const carrito = {};        // id -> cantidad en el pedido
-let filtro = "Todo";
 
-function pintarCarta() {
-  const cats = ["Todo", ...new Set(CARTA.map(p => p.categoria))];
-  document.getElementById("chips").innerHTML = cats.map(c =>
-    `<button class="chip ${c===filtro?'on':''}" data-c="${c}">${c==='Todo'?'Toda la carta':c}</button>`).join("");
-  const visibles = cats.slice(1).filter(c => filtro==="Todo" || c===filtro);
-  document.getElementById("carta").innerHTML = visibles.map(c => `
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Pollería · Nuevo pedido</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Lora:wght@500;700&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="css/estilos.css">
+</head>
+
+<body>
+  <header class="top">
+    <div class="logo">
+      <img class="logo-img" src="img/PolleriaPLogo.jpg" alt="" width="100" height="100">
+      <span>Pollería Paredes</span>
+    </div>
+    <nav><a class="on" href="index.html">Nuevo pedido</a><a href="pedidos.html">Pedidos</a></nav>
+  </header>
+  <section class="hero">
+    <h1>Nuevo pedido</h1>
+    <p>Añade los platos, selecciona al cliente e indica el código del empleado.</p>
+  </section>
+  <main class="wrap">
+    <div>
+      <div class="chips" id="chips"></div>
+      <div id="carta"></div>
+    </div>
+    <aside class="panel">
+      <h2>Tu pedido</h2>
+      <label for="buscar-cliente">Buscar cliente por nombre o apellido</label>
+      <input id="buscar-cliente" type="search" placeholder="Ej. Ana">
+
+      <button id="boton-buscar-cliente" class="btn" type="button">
+        Buscar cliente
+      </button>
+
+      <label for="cliente">Selecciona un cliente</label>
+      <select id="cliente" disabled>
+        <option value="">Busca un cliente primero</option>
+      </select>
+
+      <p id="mensaje-cliente" role="status"></p>
+
+      <details id="alta-cliente">
+        <summary>Registrar cliente nuevo</summary>
+
+        <form id="form-alta-cliente">
+          <label for="alta-nombre">Nombre</label>
+          <input id="alta-nombre" name="nombre" required>
+
+          <label for="alta-apellido">Apellido</label>
+          <input id="alta-apellido" name="apellido" required>
+
+          <label for="alta-telefono">Teléfono</label>
+          <input id="alta-telefono" name="telefono" type="tel" required>
+
+          <label for="alta-direccion">Dirección</label>
+          <input id="alta-direccion" name="direccion" required>
+
+          <button class="btn" type="submit">Guardar y seleccionar cliente</button>
+          <p id="mensaje-alta-cliente" role="status"></p>
+        </form>
+      </details>
+
+      <label for="empleado">Código del empleado</label>
+      <input id="empleado" placeholder="Ej. E001" maxlength="10" required>
+
+      <!-- El texto es lo que ve el usuario. El value es lo que se envía a Java. -->
+      <label for="tipo">Tipo de pedido</label>
+      <select id="tipo">
+        <option value="Presencial">En el local</option>
+        <option value="Recojo">Para llevar</option>
+        <option value="Delivery">Delivery</option>
+      </select>
+      <div id="items" style="margin-top:12px"></div>
+      <div class="totales" id="totales"></div>
+      <button class="btn" id="confirmar" style="width:100%;margin-top:14px" disabled>Confirmar pedido</button>
+      <div class="msg" id="msg"></div>
+    </aside>
+  </main>
+  <script src="js/datos.js"></script>
+  <script src="js/api.js"></script>
+  <script>
+    const cant = {};           // id -> cantidad elegida en la tarjeta
+    const carrito = {};        // id -> cantidad en el pedido
+    let filtro = "Todo";
+
+    let enviandoPedido = false; // Indica que estamos esperando la respuesta de Java.
+
+    function pintarCarta() {
+      const cats = ["Todo", ...new Set(CARTA.map(p => p.categoria))];
+      document.getElementById("chips").innerHTML = cats.map(c =>
+        `<button class="chip ${c === filtro ? 'on' : ''}" data-c="${c}">${c === 'Todo' ? 'Toda la carta' : c}</button>`).join("");
+      const visibles = cats.slice(1).filter(c => filtro === "Todo" || c === filtro);
+      document.getElementById("carta").innerHTML = visibles.map(c => `
     <section class="sec"><h2>${c}</h2><div class="grid">
-    ${CARTA.filter(p => p.categoria===c).map(p => `
+    ${CARTA.filter(p => p.categoria === c).map(p => `
       <article class="plato">
         ${foto(p)}
         <div class="cuerpo">
           <div class="tag">${p.etiqueta}</div>
           <h3>${p.nombre}</h3><p>${p.descripcion}</p>
           <div class="fila"><span class="precio">${soles(p.precio)}</span>
-            <span><span class="qty"><button data-m="${p.id}">−</button><span id="q${p.id}">${cant[p.id]||1}</span><button data-p="${p.id}">+</button></span>
+            <span><span class="qty"><button data-m="${p.id}">−</button><span id="q${p.id}">${cant[p.id] || 1}</span><button data-p="${p.id}">+</button></span>
             <button class="btn" data-a="${p.id}" style="margin-left:6px;padding:6px 10px">Añadir</button></span>
           </div>
         </div>
       </article>`).join("")}
     </div></section>`).join("");
-}
+    }
 
-function pintarPedido() {
-  const ids = Object.keys(carrito);
-  document.getElementById("items").innerHTML = ids.length ? ids.map(id => {
-    const p = CARTA.find(x => x.id == id), q = carrito[id];
-    return `<div class="item"><div>${q} × ${p.nombre}<small>${soles(p.precio)} c/u · <a href="#" data-r="${id}" style="color:var(--acc)">quitar</a></small></div><b>${soles(p.precio*q)}</b></div>`;
-  }).join("") : `<div class="vacio">Aún no hay platos en el pedido.</div>`;
-  const platos = ids.reduce((s,id)=>s+carrito[id],0);
-  const total = ids.reduce((s,id)=>s+CARTA.find(x=>x.id==id).precio*carrito[id],0);
-  document.getElementById("totales").innerHTML = `
+    function pintarPedido() {
+      const ids = Object.keys(carrito);
+      document.getElementById("items").innerHTML = ids.length ? ids.map(id => {
+        const p = CARTA.find(x => x.id == id), q = carrito[id];
+        return `<div class="item"><div>${q} × ${p.nombre}<small>${soles(p.precio)} c/u · <a href="#" data-r="${id}" style="color:var(--acc)">quitar</a></small></div><b>${soles(p.precio * q)}</b></div>`;
+      }).join("") : `<div class="vacio">Aún no hay platos en el pedido.</div>`;
+      const platos = ids.reduce((s, id) => s + carrito[id], 0);
+      const total = ids.reduce((s, id) => s + CARTA.find(x => x.id == id).precio * carrito[id], 0);
+      document.getElementById("totales").innerHTML = `
     <div><span>Cantidad de platos</span><span>${platos}</span></div>
     <div class="tot"><span>Total</span><span>${soles(total)}</span></div>`;
-  document.getElementById("confirmar").disabled = !platos;
-}
+      document.getElementById("confirmar").disabled = enviandoPedido || !platos;
+    }
 
-document.addEventListener("click", e => {
-  const d = e.target.dataset;
-  if (d.c) { filtro = d.c; pintarCarta(); }
-  if (d.p) { cant[d.p] = (cant[d.p]||1)+1; document.getElementById("q"+d.p).textContent = cant[d.p]; }
-  if (d.m) { cant[d.m] = Math.max(1,(cant[d.m]||1)-1); document.getElementById("q"+d.m).textContent = cant[d.m]; }
-  if (d.a) { carrito[d.a] = (carrito[d.a]||0)+(cant[d.a]||1); pintarPedido(); }
-  if (d.r) { e.preventDefault(); delete carrito[d.r]; pintarPedido(); }
-});
+    document.addEventListener("click", e => {
+      const d = e.target.dataset;
 
-document.getElementById("confirmar").onclick = async () => {
-  const cliente = document.getElementById("cliente").value.trim();
-  if (!cliente) { document.getElementById("msg").style.color="var(--acc)"; document.getElementById("msg").textContent="Ingresa el nombre del cliente."; return; }
-  
-  //Se retiró el símbolo + para conservar los códigos como cadenas de texto
-  const lineas = Object.keys(carrito).map(id => ({ platoId: id, cantidad: carrito[id] }));
+      if (enviandoPedido && (d.a || d.r)) {
+        e.preventDefault();
+        return;
+      }
 
-  const pedido = await crearPedido({
-    cliente, tipo: document.getElementById("tipo").value,
-    nota: document.getElementById("nota").value.trim(), lineas
-  });
-  for (const k in carrito) delete carrito[k];
-  document.getElementById("cliente").value = ""; document.getElementById("nota").value = "";
-  pintarPedido();
-  const m = document.getElementById("msg"); m.style.color="var(--ok)";
-  m.innerHTML = `Pedido #${pedido.id} guardado. <a href="pedidos.html?id=${pedido.id}" style="color:var(--acc)">Ver detalle</a>`;
-};
+      if (d.c) { filtro = d.c; pintarCarta(); }
+      if (d.p) { cant[d.p] = (cant[d.p] || 1) + 1; document.getElementById("q" + d.p).textContent = cant[d.p]; }
+      if (d.m) { cant[d.m] = Math.max(1, (cant[d.m] || 1) - 1); document.getElementById("q" + d.m).textContent = cant[d.m]; }
+      if (d.a) { carrito[d.a] = (carrito[d.a] || 0) + (cant[d.a] || 1); pintarPedido(); }
+      if (d.r) { e.preventDefault(); delete carrito[d.r]; pintarPedido(); }
+    });
 
-cargarCarta().then(() => { pintarCarta(); pintarPedido(); });
-</script>
+    const buscadorCliente = document.getElementById("buscar-cliente");
+    const botonBuscarCliente = document.getElementById("boton-buscar-cliente");
+    const selectorCliente = document.getElementById("cliente");
+    const mensajeCliente = document.getElementById("mensaje-cliente");
+    let busquedaActual = 0;
+
+    function limpiarResultadosCliente() {
+      selectorCliente.replaceChildren(new Option("Selecciona un cliente", ""));
+      selectorCliente.disabled = true;
+    }
+
+    buscadorCliente.addEventListener("input", () => {
+      // Al editar el texto, invalidar la selección y cualquier búsqueda anterior.
+      busquedaActual++;
+      limpiarResultadosCliente();
+      mensajeCliente.textContent = "";
+    });
+
+    botonBuscarCliente.addEventListener("click", async () => {
+      if (enviandoPedido) return;
+
+      const texto = buscadorCliente.value.trim();
+      const busqueda = ++busquedaActual;
+      limpiarResultadosCliente();
+
+      if (texto.length < 2) {
+        mensajeCliente.textContent = "Escribe al menos dos caracteres.";
+        return;
+      }
+
+      mensajeCliente.textContent = "Buscando clientes…";
+
+      try {
+        const clientes = await buscarClientesEnAPI(texto);
+        // Si el usuario cambió el texto o buscó de nuevo, ignorar esta respuesta.
+        if (busqueda !== busquedaActual) return;
+
+        for (const cliente of clientes) {
+          const etiqueta = `${cliente.nombre} ${cliente.apellido} · ${cliente.idCliente} · Tel. …${cliente.telefonoFinal}`;
+          selectorCliente.add(new Option(etiqueta, cliente.idCliente));
+        }
+
+        selectorCliente.disabled = clientes.length === 0;
+        mensajeCliente.textContent = clientes.length
+          ? "Elige al cliente en la lista."
+          : "No se encontraron clientes.";
+      } catch (error) {
+        if (busqueda === busquedaActual) {
+          mensajeCliente.textContent = `No se pudo completar la búsqueda. ${error.message}`;
+        }
+      }
+    });
+    const formularioAlta = document.getElementById("form-alta-cliente");
+    const mensajeAlta = document.getElementById("mensaje-alta-cliente");
+    let registrandoCliente = false;
+
+    formularioAlta.addEventListener("submit", async evento => {
+      evento.preventDefault();
+      if (enviandoPedido || registrandoCliente) return;
+
+      const campos = Object.fromEntries(new FormData(formularioAlta));
+      for (const campo of Object.keys(campos)) {
+        campos[campo] = campos[campo].trim();
+      }
+
+      if (Object.values(campos).some(valor => valor === "")) {
+        mensajeAlta.textContent = "Completa los cuatro campos del cliente.";
+        return;
+      }
+
+      registrandoCliente = true;
+      const botonAlta = formularioAlta.querySelector('button[type="submit"]');
+      botonAlta.disabled = true;
+      mensajeAlta.textContent = "Guardando cliente…";
+
+      try {
+        const cliente = await registrarClienteEnAPI(campos);
+
+        // Invalidar búsquedas pendientes y seleccionar el código devuelto por Java.
+        busquedaActual++;
+        buscadorCliente.value = `${cliente.nombre} ${cliente.apellido}`;
+        limpiarResultadosCliente();
+        const etiqueta = `${buscadorCliente.value} · ${cliente.idCliente} · Tel. …${cliente.telefonoFinal}`;
+        selectorCliente.add(new Option(etiqueta, cliente.idCliente, false, true));
+        selectorCliente.disabled = false;
+        mensajeCliente.textContent = cliente.creado
+          ? `Cliente ${cliente.idCliente} guardado y seleccionado.`
+          : `El cliente ${cliente.idCliente} ya estaba registrado y quedó seleccionado.`;
+
+        formularioAlta.reset();
+        mensajeAlta.textContent = "";
+        document.getElementById("alta-cliente").open = false;
+      } catch (error) {
+        mensajeAlta.textContent = error.message;
+      } finally {
+        registrandoCliente = false;
+        botonAlta.disabled = false;
+      }
+    });
+    document.getElementById("confirmar").onclick = async () => {
+      if (enviandoPedido) return;
+
+      const cliente = document.getElementById("cliente");
+      const empleado = document.getElementById("empleado");
+      const mensaje = document.getElementById("msg");
+
+      const idCliente = cliente.value.trim();
+      const idEmpleado = empleado.value.trim();
+      const tipoPedido = document.getElementById("tipo").value;
+
+      if (!idCliente || !idEmpleado) {
+        mensaje.style.color = "var(--acc)";
+        mensaje.textContent = "Selecciona un cliente e ingresa el código del empleado.";
+        return;
+      }
+
+      // Cada clave del carrito es un código de plato, por ejemplo P001.
+      const lineas = Object.keys(carrito).map(platoId => ({
+        platoId,
+        cantidad: carrito[platoId]
+      }));
+
+      if (!lineas.length) return;
+
+      enviandoPedido = true;
+      pintarPedido();
+      mensaje.textContent = "Registrando pedido…";
+
+      try {
+        // Estos nombres coinciden con los campos que lee ServidorAPI.java.
+        const pedido = await registrarPedidoEnAPI({
+          idCliente, idEmpleado, tipoPedido, lineas
+        });
+
+        // Limpiar el formulario después de que la API confirme el registro.
+        for (const platoId of Object.keys(carrito)) delete carrito[platoId];
+        // Limpiar la búsqueda junto con el resto del pedido guardado.
+        busquedaActual++;
+        buscadorCliente.value = "";
+        limpiarResultadosCliente();
+        mensajeCliente.textContent = "";
+
+        empleado.value = "";
+
+        mensaje.style.color = "var(--ok)";
+        mensaje.textContent = `Pedido ${pedido.id} guardado.`;
+      } catch (error) {
+        // Mostrar el error y conservar el carrito para que el usuario pueda revisarlo.
+        mensaje.style.color = "var(--acc)";
+        mensaje.textContent = error.message;
+      } finally {
+        // Volver a habilitar el botón si quedaron platos en el carrito.
+        enviandoPedido = false;
+        pintarPedido();
+      }
+    };
+
+    cargarCarta().then(() => { pintarCarta(); pintarPedido(); });
+  </script>
 </body>
+
 </html>

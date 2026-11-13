@@ -12,7 +12,7 @@
  * Update	actualizarDescripcion()                 Modificar la descripción de un plato.
  * Delete	eliminarPlato()                         Eliminar un documento de la colección.
  */
-package com.polleriaparedes.mongodb;
+package com.polleriaparedes.dao.mongo;
 
 import com.mongodb.client.MongoCollection;           // Representa una coleccion de MongoDB.
 import com.mongodb.client.MongoDatabase;             // Permite acceder a una base de datos MongoDB.

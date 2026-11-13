@@ -1,6 +1,8 @@
 
 package com.polleriaparedes.mongodb;
 
+import com.polleriaparedes.dao.mongo.PlatoDAO;
+import com.polleriaparedes.config.ConexionMongoDB;
 import com.mongodb.client.MongoDatabase; // Representa una base de datos de MongoDB.
 import org.bson.Document;                // Permite representar documentos BSON en Java.
 

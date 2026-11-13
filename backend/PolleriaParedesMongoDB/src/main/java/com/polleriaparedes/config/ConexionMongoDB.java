@@ -3,7 +3,7 @@
  * Click nbfs://nbhost/SystemFileSystem/Templates/Classes/Class.java to edit this template
  */
 
-package com.polleriaparedes.mongodb;
+package com.polleriaparedes.config;
 
 import com.mongodb.client.MongoClient;      // Representa la conexion del cliente con MongoDB.
 import com.mongodb.client.MongoClients;     // Permite crear el cliente para conectarnos a MongoDB.
