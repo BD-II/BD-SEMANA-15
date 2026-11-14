@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Pollería · Pedidos</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Lora:wght@500;700&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="css/estilos.css">
+</head>
+
+<body>
+  <header class="top">
+    <div class="logo">
+      <img class="logo-img" src="img/PolleriaPLogo.jpg" alt="" width="100" height="100">
+      <span>Pollería Paredes</span>
+    </div>
+    <nav><a href="index.html">Nuevo pedido</a><a class="on" href="pedidos.html">Pedidos</a></nav>
+  </header>
+  <main class="pwrap">
+    <section class="lista" id="lista"></section>
+    <section id="detalle"></section>
+  </main>
+  <script src="js/datos.js"></script>
+  <script src="js/api.js"></script>
+  <script>
+    const lista = document.getElementById("lista");
+    const detalle = document.getElementById("detalle");
+    const estados = ["Pendiente", "Preparando", "Entregado", "Cancelado"];
+
+    // Conservar el código como texto para abrir enlaces como pedidos.html?id=PD057.
+    const idSolicitado = new URLSearchParams(location.search).get("id");
+    let consultaActual = 0;
+
+    // Consultar el catálogo una vez y organizar los platos por código.
+    const catalogoVisual = cargarCarta()
+      .then(platos => new Map(platos.map(plato => [plato.id, plato])))
+      .catch(error => {
+        console.warn("No se pudo cargar el catálogo de apoyo.", error);
+        return new Map();
+      });
+
+    function mostrarFecha(valor) {
+      return new Date(valor).toLocaleString("es-PE", {
+        dateStyle: "medium",
+        timeStyle: "short"
+      });
+    }
+
+    // Crear elementos con texto para mostrar los datos recibidos de la API.
+    function agregarTexto(contenedor, etiqueta, texto, clase) {
+      const elemento = document.createElement(etiqueta);
+      elemento.textContent = texto;
+      if (clase) elemento.className = clase;
+      contenedor.append(elemento);
+      return elemento;
+    }
+
+    async function mostrarDetalle(pedido, boton) {
+      // Si el usuario abre otro pedido, solo se muestra la última respuesta.
+      const consulta = ++consultaActual;
+      lista.querySelector(".ped.on")?.classList.remove("on");
+      boton.classList.add("on");
+      detalle.textContent = "Cargando detalle…";
+
+      try {
+        // El detalle trae los datos de la venta. El catálogo aporta foto y descripción.
+        const [{ lineas }, catalogo] = await Promise.all([
+          obtenerDetallePedidoEnAPI(pedido.id),
+          catalogoVisual
+        ]);
+        if (consulta !== consultaActual) return;
+
+        detalle.replaceChildren();
+        const panel = document.createElement("div");
+        panel.className = "detalle";
+        detalle.append(panel);
+
+        agregarTexto(panel, "h2", `Pedido ${pedido.id}`);
+        agregarTexto(panel, "p", `Cliente ${pedido.idCliente} · Empleado ${pedido.idEmpleado}`);
+        agregarTexto(panel, "p", `${pedido.tipo} · ${estados[pedido.estado] ?? "Estado desconocido"}`);
+        agregarTexto(panel, "p", mostrarFecha(pedido.fecha));
+
+        if (!lineas.length) {
+          agregarTexto(panel, "p", "Este pedido no tiene líneas registradas.", "vacio");
+          return;
+        }
+
+        let total = 0;
+
+        for (const linea of lineas) {
+          // Estos importes pertenecen al pedido guardado en PostgreSQL.
+          const subtotal = Number(linea.subtotal);
+          total += subtotal;
+
+          // Relacionar la línea del pedido con el plato del catálogo por su código.
+          const plato = catalogo.get(linea.platoId);
+
+          // Recuperar el desplegable y las clases CSS de la pantalla anterior.
+          const tarjeta = agregarTexto(panel, "details", "", "dp");
+          const resumen = agregarTexto(tarjeta, "summary", "");
+          const miniatura = agregarTexto(resumen, "div", "", "foto");
+          agregarTexto(miniatura, "span", plato?.emoji || "🍽️");
+
+          const imagenUrl = plato ? urlImagen(plato) : "";
+          if (imagenUrl) {
+            const imagen = document.createElement("img");
+            imagen.alt = linea.nombre;
+            imagen.loading = "lazy";
+            // Si falta el archivo, queda visible el emoji.
+            imagen.addEventListener("error", () => imagen.remove());
+            imagen.src = imagenUrl;
+            miniatura.append(imagen);
+          }
+
+          const texto = agregarTexto(resumen, "div", "", "t");
+          agregarTexto(texto, "b", `${linea.cantidad} × ${linea.nombre}`);
+          agregarTexto(texto, "small", `${soles(Number(linea.precioUnitario))} c/u`);
+          agregarTexto(resumen, "span", soles(subtotal), "sub");
+
+          const contenido = agregarTexto(tarjeta, "div", "", "cont");
+          agregarTexto(contenido, "p",
+            plato?.descripcion || "Descripción no disponible.");
+        }
+
+        const sumas = agregarTexto(panel, "div", "", "sumas");
+        agregarTexto(sumas, "div", `Total ${soles(total)}`, "tot");
+
+        // Mostrar la acción cuando el pedido está pendiente y tiene líneas.
+        if (pedido.estado === 0) {
+          const acciones = agregarTexto(panel, "div", "", "acciones");
+          const botonPreparar = agregarTexto(acciones, "button", "Marcar preparando", "btn");
+          botonPreparar.type = "button";
+
+          botonPreparar.addEventListener("click", async () => {
+            botonPreparar.disabled = true;
+            const mensaje = agregarTexto(acciones, "p", "Actualizando pedido…");
+
+            try {
+              await marcarPreparandoEnAPI(pedido.id);
+
+              // Si el usuario sigue viendo este pedido, volver a cargarlo seleccionado.
+              if (consulta === consultaActual) {
+                await cargarPedidos(pedido.id);
+              }
+            } catch (error) {
+              mensaje.textContent = error.message;
+              botonPreparar.disabled = false;
+            }
+          });
+        }
+
+        // Ofrecer el cobro cuando el pedido ya está en preparación.
+        if (pedido.estado === 1) {
+          const acciones = agregarTexto(panel, "div", "", "acciones");
+          const etiqueta = agregarTexto(acciones, "label", "Método de pago ");
+          const selector = agregarTexto(etiqueta, "select", "");
+
+          for (const metodo of ["Efectivo", "Tarjeta", "Yape", "Plin"]) {
+            const opcion = agregarTexto(selector, "option", metodo);
+            opcion.value = metodo;
+          }
+
+          const botonPago = agregarTexto(acciones, "button", "Registrar pago", "btn");
+          botonPago.type = "button";
+          const mensaje = agregarTexto(acciones, "p", "");
+          mensaje.setAttribute("role", "status");
+
+          botonPago.addEventListener("click", async () => {
+            botonPago.disabled = true;
+            selector.disabled = true;
+            mensaje.textContent = "Registrando pago…";
+
+            try {
+              await registrarPagoEnAPI(pedido.id, selector.value);
+            } catch (error) {
+              mensaje.textContent = error.message;
+              botonPago.disabled = false;
+              selector.disabled = false;
+              return;
+            }
+
+            // Volver a leer el estado que dejó PostgreSQL, como al marcar preparando.
+            mensaje.textContent = "Pago registrado.";
+            if (consulta === consultaActual) {
+              await cargarPedidos(pedido.id);
+            }
+          });
+        }
+        // Permitir la cancelación de pedidos no históricos que siguen abiertos.
+        if (pedido.legado === false && (pedido.estado === 0 || pedido.estado === 1)) {
+          const acciones = agregarTexto(panel, "div", "", "acciones");
+          const botonCancelar = agregarTexto(acciones, "button", "Cancelar pedido", "btn sec2");
+          botonCancelar.type = "button";
+
+          const mensaje = agregarTexto(acciones, "p", "");
+          mensaje.setAttribute("role", "status");
+
+          botonCancelar.addEventListener("click", async () => {
+            // Pedir confirmación antes de enviar el cambio a PostgreSQL.
+            if (!window.confirm(`¿Confirmas la cancelación del pedido ${pedido.id}?`)) {
+              return;
+            }
+
+            // Pausar las acciones del pedido mientras se procesa la cancelación.
+            const controles = panel.querySelectorAll(".acciones button:enabled, .acciones select:enabled");
+            controles.forEach(control => { control.disabled = true; });
+            mensaje.textContent = "Cancelando pedido…";
+
+            try {
+              await cambiarEstadoPedidoEnAPI(pedido.id, 3);
+            } catch (error) {
+              mensaje.textContent = error.message;
+              controles.forEach(control => { control.disabled = false; });
+              return;
+            }
+
+            // Volver a leer el estado guardado y conservar el pedido seleccionado.
+            mensaje.textContent = "Pedido cancelado.";
+            if (consulta === consultaActual) {
+              await cargarPedidos(pedido.id);
+            }
+          });
+        }
+
+      } catch (error) {
+        if (consulta === consultaActual) {
+          detalle.textContent = `No se pudo cargar el detalle. ${error.message}`;
+        }
+      }
+    }
+
+    // Si llega un código al recargar, usarlo. Al entrar, usar el de la URL.
+    async function cargarPedidos(idPreferido = idSolicitado) {
+      lista.textContent = "Cargando pedidos…";
+
+      try {
+        const pedidos = await listarPedidosEnAPI();
+        lista.replaceChildren();
+
+        if (!pedidos.length) {
+          agregarTexto(lista, "div", "Todavía no hay pedidos.", "vacio");
+          return;
+        }
+
+        const botones = new Map();
+
+        for (const pedido of pedidos) {
+          const estado = estados[pedido.estado] ?? "Estado desconocido";
+          const boton = agregarTexto(lista, "button",
+            `${pedido.id} · Cliente ${pedido.idCliente} · ${estado} · ${mostrarFecha(pedido.fecha)}`,
+            "ped");
+          boton.type = "button";
+          boton.addEventListener("click", () => mostrarDetalle(pedido, boton));
+          botones.set(pedido.id, boton);
+        }
+
+        // Abrir el código indicado en la URL. Sin código, abrir el más reciente.
+        const inicial = idPreferido ?? pedidos[0].id;
+        const boton = botones.get(inicial);
+
+        if (boton) {
+          boton.click();
+        } else {
+          detalle.textContent = `El pedido ${inicial} no aparece en la lista.`;
+        }
+      } catch (error) {
+        lista.textContent = `No se pudieron cargar los pedidos. ${error.message}`;
+      }
+    }
+
+    cargarPedidos();
+  </script>
