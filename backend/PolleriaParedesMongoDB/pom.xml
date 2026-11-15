@@ -30,8 +30,22 @@
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <version>42.7.8</version>
+        </dependency>        
+        <!--
+            Biblioteca para generar y verificar hashes de contraseñas.
+            El código Java elige Argon2id mediante Argon2Factory.
+            PostgreSQL guarda el hash codificado, que incluye los parámetros
+            de Argon2id y la sal aleatoria que la biblioteca genera para cada hash.
+        -->
+        <dependency>
+            <!-- Grupo que publica la biblioteca en Maven. -->
+            <groupId>de.mkammerer</groupId>
+
+            <!-- Artefacto que el proyecto necesita para usar Argon2 desde Java. -->
+            <artifactId>argon2-jvm</artifactId>
+
+            <!-- Versión de la dependencia que Maven descargará para este proyecto. -->
+            <version>2.12</version>
         </dependency>
-
     </dependencies>
-
 </project>

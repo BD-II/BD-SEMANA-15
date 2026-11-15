@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pollería Paredes · Iniciar sesión</title>
+    <link rel="stylesheet" href="css/estilos.css">
+</head>
+
+<body>
+    <header class="top">
+        <div class="logo">
+            <img class="logo-img" src="img/PolleriaPLogo.jpg" alt="" width="64" height="64">
+            <span>Pollería Paredes</span>
+        </div>
+    </header>
+
+    <main class="login-wrap">
+        <section class="panel login-panel" aria-labelledby="titulo-login">
+            <h1 id="titulo-login">Acceso de empleados</h1>
+
+            <form id="form-login">
+                <label for="codigo-empleado">Código del empleado</label>
+                <input id="codigo-empleado" name="idEmpleado" type="text" placeholder="Ej. E003" maxlength="10"
+                    autocomplete="username" required>
+
+                <label for="clave-empleado">Contraseña</label>
+                <input id="clave-empleado" name="contrasena" type="password" autocomplete="current-password" required>
+
+                <button class="btn" type="submit">Iniciar sesión</button>
+                <p id="mensaje-login" role="status"></p>
+            </form>
+        </section>
+    </main>
+
+    <!-- Cargar primero api.js para poder usar la constante API_URL. -->
+    <script src="js/api.js"></script>
+    <script>
+        const formulario = document.getElementById("form-login");
+        const codigo = document.getElementById("codigo-empleado");
+        const clave = document.getElementById("clave-empleado");
+        const mensaje = document.getElementById("mensaje-login");
+        const boton = formulario.querySelector('button[type="submit"]');
+
+        formulario.addEventListener("submit", async evento => {
+            // Mantener la página abierta mientras Java comprueba las credenciales.
+            evento.preventDefault();
+            if (boton.disabled) return;
+
+            const idEmpleado = codigo.value.trim();
+            if (!idEmpleado) {
+                mensaje.textContent = "Ingresa el código del empleado.";
+                codigo.focus();
+                return;
+            }
+
+            boton.disabled = true;
+            mensaje.textContent = "Verificando credenciales…";
+
+            try {
+                const respuesta = await fetch(`${API_URL}/login`, {
+                    method: "POST",
+
+                    // Live Server y Java usan puertos distintos.
+                    // Esta opción permite que Chrome acepte la cookie enviada por Java.
+                    credentials: "include",
+                    headers: { "Content-Type": "application/json" },
+
+                    // Quitar espacios del código y enviar la contraseña tal como se escribió.
+                    body: JSON.stringify({ idEmpleado, contrasena: clave.value })
+                });
+
+                const datos = await respuesta.json();
+
+                // Java devuelve 401 si las credenciales son incorrectas.
+                if (!respuesta.ok) {
+                    mensaje.textContent = datos.error || `Error HTTP ${respuesta.status}`;
+                    clave.focus();
+                    return;
+                }
+
+                // Abrir Nuevo pedido después de la respuesta exitosa.
+                window.location.replace("index.html");
+            } catch (error) {
+                mensaje.textContent = "No se pudo completar el inicio de sesión. Verifica que la API esté en ejecución.";
+            } finally {
+                // Limpiar la contraseña del formulario y permitir otro intento.
+                clave.value = "";
+                boton.disabled = false;
+            }
+        });
+    </script>
+</body>
+
+</html>

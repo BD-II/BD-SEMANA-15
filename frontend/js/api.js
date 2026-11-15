@@ -104,6 +104,7 @@ async function registrarPagoEnAPI(id, metodoPago) {
     `${API_URL}/pedidos/${encodeURIComponent(id)}/pago`,
     {
       method: "POST",
+      credentials: "include",// Enviar la cookie de sesión junto con la solicitud.
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ metodoPago })
     }
@@ -121,6 +122,7 @@ async function registrarPagoEnAPI(id, metodoPago) {
 async function cambiarEstadoPedidoEnAPI(id, estado) {
   const respuesta = await fetch(`${API_URL}/pedidos/${encodeURIComponent(id)}`, {
     method: "PATCH",
+    credentials: "include",// Enviar la cookie de sesión junto con la solicitud.
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ estado })
   });
@@ -176,6 +178,7 @@ async function registrarClienteEnAPI(cliente) {
 async function registrarPedidoEnAPI(datos) {
   const respuesta = await fetch(`${API_URL}/pedidos`, {
     method: "POST",
+    credentials: "include", // Adjuntar la cookie de sesión que administra Chrome.
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(datos)
   });
@@ -217,4 +220,32 @@ async function cambiarEstado(id, estado) {
   }
   const lista = _leerLocal(); const p = lista.find(x => x.id === id);
   if (p) { p.estado = estado; _guardarLocal(lista); }
+}
+
+function conectarBotonCerrarSesion() {
+  const boton = document.getElementById("cerrar-sesion");
+  const mensaje = document.getElementById("mensaje-sesion");
+
+  boton.addEventListener("click", async () => {
+    boton.disabled = true;
+    mensaje.textContent = "";
+
+    try {
+      // Enviar la cookie para que Java sepa qué sesión debe eliminar.
+      const respuesta = await fetch(`${API_URL}/logout`, {
+        method: "POST",
+        credentials: "include"
+      });
+
+      if (!respuesta.ok) {
+        throw new Error(`HTTP ${respuesta.status}`);
+      }
+
+      // La respuesta 204 está vacía. Ir al login después de confirmarla.
+      window.location.replace("login.html");
+    } catch (error) {
+      mensaje.textContent = `No se pudo cerrar sesión. ${error.message}`;
+      boton.disabled = false;
+    }
+  });
 }
