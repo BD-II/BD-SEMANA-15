@@ -594,3 +594,27 @@ header.top .logo-img {
   border-radius: 8px;
   object-fit: contain;
 }
+
+/* Centrar la tarjeta de acceso con espacio en pantallas estrechas. */
+.login-wrap {
+  display: grid;
+  justify-items: center;
+  padding: 48px 16px;
+}
+
+/* La tarjeta de acceso tiene su propio ancho y sigue el flujo de la página. */
+.login-wrap .login-panel {
+  position: static;
+  width: min(100%, 420px);
+  padding: 24px;
+}
+
+.login-panel .btn {
+  width: 100%;
+  margin-top: 20px;
+}
+
+#mensaje-login {
+  margin-top: 12px;
+  color: var(--mute);
+}

@@ -16,7 +16,10 @@
       <img class="logo-img" src="img/PolleriaPLogo.jpg" alt="" width="100" height="100">
       <span>Pollería Paredes</span>
     </div>
-    <nav><a href="index.html">Nuevo pedido</a><a class="on" href="pedidos.html">Pedidos</a></nav>
+    <nav><a href="index.html">Nuevo pedido</a><a class="on" href="pedidos.html">Pedidos</a><button id="cerrar-sesion"
+        class="btn" type="button">Cerrar sesión</button>
+      <span id="mensaje-sesion" role="status"></span>
+    </nav>
   </header>
   <main class="pwrap">
     <section class="lista" id="lista"></section>
@@ -271,4 +274,6 @@
     }
 
     cargarPedidos();
+    // Activar el botón después de cargar api.js y el contenido de la página.
+    conectarBotonCerrarSesion();
   </script>

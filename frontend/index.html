@@ -16,11 +16,14 @@
       <img class="logo-img" src="img/PolleriaPLogo.jpg" alt="" width="100" height="100">
       <span>Pollería Paredes</span>
     </div>
-    <nav><a class="on" href="index.html">Nuevo pedido</a><a href="pedidos.html">Pedidos</a></nav>
+    <nav><a class="on" href="index.html">Nuevo pedido</a><a href="pedidos.html">Pedidos</a><button id="cerrar-sesion"
+        class="btn" type="button">Cerrar sesión</button>
+      <span id="mensaje-sesion" role="status"></span>
+    </nav>
   </header>
   <section class="hero">
     <h1>Nuevo pedido</h1>
-    <p>Añade los platos, selecciona al cliente e indica el código del empleado.</p>
+    <p>Añade los platos, selecciona al cliente.</p>
   </section>
   <main class="wrap">
     <div>
@@ -63,9 +66,6 @@
           <p id="mensaje-alta-cliente" role="status"></p>
         </form>
       </details>
-
-      <label for="empleado">Código del empleado</label>
-      <input id="empleado" placeholder="Ej. E001" maxlength="10" required>
 
       <!-- El texto es lo que ve el usuario. El value es lo que se envía a Java. -->
       <label for="tipo">Tipo de pedido</label>
@@ -243,16 +243,14 @@
       if (enviandoPedido) return;
 
       const cliente = document.getElementById("cliente");
-      const empleado = document.getElementById("empleado");
       const mensaje = document.getElementById("msg");
 
       const idCliente = cliente.value.trim();
-      const idEmpleado = empleado.value.trim();
       const tipoPedido = document.getElementById("tipo").value;
 
-      if (!idCliente || !idEmpleado) {
+      if (!idCliente) {
         mensaje.style.color = "var(--acc)";
-        mensaje.textContent = "Selecciona un cliente e ingresa el código del empleado.";
+        mensaje.textContent = "Selecciona un cliente.";
         return;
       }
 
@@ -271,7 +269,7 @@
       try {
         // Estos nombres coinciden con los campos que lee ServidorAPI.java.
         const pedido = await registrarPedidoEnAPI({
-          idCliente, idEmpleado, tipoPedido, lineas
+          idCliente, tipoPedido, lineas
         });
 
         // Limpiar el formulario después de que la API confirme el registro.
@@ -281,8 +279,6 @@
         buscadorCliente.value = "";
         limpiarResultadosCliente();
         mensajeCliente.textContent = "";
-
-        empleado.value = "";
 
         mensaje.style.color = "var(--ok)";
         mensaje.textContent = `Pedido ${pedido.id} guardado.`;
@@ -298,6 +294,8 @@
     };
 
     cargarCarta().then(() => { pintarCarta(); pintarPedido(); });
+    // Activar el botón después de cargar api.js y el contenido de la página.
+    conectarBotonCerrarSesion();
   </script>
 </body>
 

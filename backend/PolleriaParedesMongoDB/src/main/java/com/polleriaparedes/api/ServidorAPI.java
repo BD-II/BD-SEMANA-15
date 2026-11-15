@@ -19,6 +19,14 @@ import com.polleriaparedes.config.ConexionMongoDB;
 import com.polleriaparedes.dao.postgres.ClientePostgresDAO; // Consulta clientes en PostgreSQL.
 import java.net.URLDecoder; // Convierte el texto codificado en la URL a texto normal.
 
+import com.polleriaparedes.config.ConexionPostgreSQL; // Abre la conexión JDBC.
+import de.mkammerer.argon2.Argon2Factory;             // Crea el verificador Argon2id.
+import java.security.SecureRandom;                  // Genera identificadores impredecibles.
+import java.time.Instant;                           // Guarda el vencimiento de cada sesión.
+import java.util.Arrays;                            // Limpia el arreglo de contraseña.
+import java.util.Base64;                            // Codifica el identificador para la cookie.
+import java.util.concurrent.ConcurrentHashMap;      // Guarda sesiones de forma concurrente.
+
 // Servicio que combina los datos oficiales de PostgreSQL
 // con la informacion complementaria de MongoDB.
 import com.polleriaparedes.servicio.CatalogoServicio;
@@ -66,6 +74,17 @@ import java.util.Map;
 import org.bson.BSONException;
 
 public class ServidorAPI {
+
+    // Generador de identificadores aleatorios para las sesiones.
+    private static final SecureRandom ALEATORIO_SESION = new SecureRandom();
+
+// Cada sesión guarda el código autenticado y hasta cuándo es válido.
+    private record SesionEmpleado(String idEmpleado, Instant venceEn) {
+
+    }
+
+// La clave es el identificador que se envía al navegador en la cookie.
+    private static final Map<String, SesionEmpleado> SESIONES = new ConcurrentHashMap<>();
 
     // Metodo principal: inicia la aplicacion HTTP.
     public static void main(String[] args) {
@@ -275,10 +294,15 @@ public class ServidorAPI {
             // Crear el DAO que consultará los clientes de PostgreSQL.
             ClientePostgresDAO clienteDAO = new ClientePostgresDAO();
 
-// Asociar /api/clientes con el método que atenderá la búsqueda.
+            // Asociar /api/clientes con el método que atenderá la búsqueda.
             servidor.createContext("/api/clientes",
                     intercambio -> buscarClientes(intercambio, clienteDAO));
 
+            // Asociar la ruta /api/login con el método que verifica las credenciales.
+            servidor.createContext("/api/login", ServidorAPI::iniciarSesion);
+
+            // Asociar la ruta de cierre de sesión con su método.
+            servidor.createContext("/api/logout", ServidorAPI::cerrarSesion);            
             // Iniciar el servidor para recibir solicitudes HTTP.
             servidor.start();
 
@@ -488,6 +512,8 @@ public class ServidorAPI {
         // Permitir que el navegador envíe solicitudes desde Live Server.
         intercambio.getResponseHeaders().set(
                 "Access-Control-Allow-Origin", "http://127.0.0.1:5501");
+        // Permitir que el navegador envíe la cookie desde Live Server.
+        intercambio.getResponseHeaders().set("Access-Control-Allow-Credentials", "true");
         intercambio.getResponseHeaders().set(
                 "Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS");
         intercambio.getResponseHeaders().set(
@@ -529,6 +555,11 @@ public class ServidorAPI {
             // PATCH actualiza el estado del pedido identificado en la URL.
             // PATCH solicita un cambio de estado para el pedido indicado en la URL.
             if ("PATCH".equals(intercambio.getRequestMethod())) {
+                // Exigir sesión antes de cambiar el estado del pedido.
+                if (!autorizarAccionPedido(intercambio)) {
+                    return;
+                }
+
                 actualizarEstadoPedido(intercambio, pedidoDAO, idPedido);
                 return;
             }
@@ -574,6 +605,24 @@ public class ServidorAPI {
             return;
         }
 
+        // Si el navegador envía Origin, comprobar que venga de nuestro frontend.
+        String origen = intercambio.getRequestHeaders().getFirst("Origin");
+        if (origen != null && !"http://127.0.0.1:5501".equals(origen)) {
+            responder(intercambio, 403,
+                    new Document("error", "Origen no permitido.").toJson());
+            return;
+        }
+
+        // El pedido requiere una sesión válida antes de leer sus datos.
+        SesionEmpleado sesion = obtenerSesionEmpleado(intercambio);
+        if (sesion == null) {
+            responder(intercambio, 401,
+                    new Document("error", "Inicia sesión para registrar el pedido.").toJson());
+            return;
+        }
+
+        // Tomar el código de la sesión que Java creó al verificar la contraseña.
+        String idEmpleado = sesion.idEmpleado();
         String idPedido;
         try {
             // Leer el cuerpo como texto UTF-8 y cerrar el flujo al terminar.
@@ -588,11 +637,10 @@ public class ServidorAPI {
             // Comprobar los tipos y guardar los valores en variables Java.
             // List<?> representa una lista cuyos elementos validaremos uno a uno.
             if (!(datos.get("idCliente") instanceof String idCliente)
-                    || !(datos.get("idEmpleado") instanceof String idEmpleado)
                     || !(datos.get("tipoPedido") instanceof String tipoPedido)
                     || !(datos.get("lineas") instanceof List<?> lineas)) {
                 throw new IllegalArgumentException(
-                        "Envía idCliente, idEmpleado, tipoPedido y una lista de líneas.");
+                        "Envía idCliente, tipoPedido y una lista de líneas.");
             }
 
             // Usar los tipos de pedido que ya aparecen en los datos del proyecto.
@@ -778,6 +826,10 @@ public class ServidorAPI {
             intercambio.getResponseHeaders().set("Allow", "POST, OPTIONS");
             responder(intercambio, 405,
                     new Document("error", "Método no permitido.").toJson());
+            return;
+        }
+        // Exigir sesión antes de leer los datos del pago y llamar al DAO.
+        if (!autorizarAccionPedido(intercambio)) {
             return;
         }
 
@@ -973,6 +1025,223 @@ public class ServidorAPI {
     private static String leerCampoCliente(Document datos, String campo) {
         // Quitar espacios exteriores y tratar campos ausentes como vacíos.
         return datos.get(campo) instanceof String texto ? texto.strip() : "";
+    }
+
+    private static void iniciarSesion(HttpExchange intercambio) throws IOException {
+        // Evitar que HttpServer atienda rutas que solo comparten el prefijo.
+        if (!"/api/login".equals(intercambio.getRequestURI().getPath())) {
+            responder(intercambio, 404, "{\"error\":\"Ruta no encontrada.\"}");
+            return;
+        }
+
+        // Permitir solicitudes con cookies desde Live Server.
+        var encabezados = intercambio.getResponseHeaders();
+        encabezados.set("Access-Control-Allow-Origin", "http://127.0.0.1:5501");
+        encabezados.set("Access-Control-Allow-Credentials", "true");
+        encabezados.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+        encabezados.set("Access-Control-Allow-Headers", "Content-Type");
+        encabezados.set("Content-Type", "application/json; charset=UTF-8");
+        encabezados.set("Cache-Control", "no-store");
+
+        // OPTIONS es la consulta previa que hará el navegador antes del POST.
+        String metodo = intercambio.getRequestMethod();
+        if ("OPTIONS".equals(metodo)) {
+            intercambio.sendResponseHeaders(204, -1);
+            intercambio.close();
+            return;
+        }
+
+        if (!"POST".equals(metodo)) {
+            encabezados.set("Allow", "POST, OPTIONS");
+            responder(intercambio, 405, "{\"error\":\"Método no permitido.\"}");
+            return;
+        }
+
+        // Si la solicitud viene de un navegador, verificar su origen.
+        // PowerShell puede enviar el POST sin encabezado Origin.
+        String origen = intercambio.getRequestHeaders().getFirst("Origin");
+        if (origen != null && !"http://127.0.0.1:5501".equals(origen)) {
+            responder(intercambio, 403, "{\"error\":\"Origen no permitido.\"}");
+            return;
+        }
+
+        Document datos;
+        try (var entrada = intercambio.getRequestBody()) {
+            // Leer como máximo 4 KiB, más un byte para detectar si se excede el límite.
+            byte[] cuerpo = entrada.readNBytes(4097);
+            if (cuerpo.length > 4096) {
+                responder(intercambio, 413, "{\"error\":\"Solicitud demasiado grande.\"}");
+                return;
+            }
+            datos = Document.parse(new String(cuerpo, StandardCharsets.UTF_8));
+        } catch (BSONException | IllegalArgumentException e) {
+            responder(intercambio, 400, "{\"error\":\"Envía un objeto JSON válido.\"}");
+            return;
+        }
+
+        // Leer las dos credenciales y validar su formato antes de consultar.
+        if (!(datos.get("idEmpleado") instanceof String codigo)
+                || codigo.isBlank() || codigo.strip().length() > 10
+                || !(datos.get("contrasena") instanceof String texto)
+                || texto.isEmpty()) {
+            responder(intercambio, 400, "{\"error\":\"Ingresa el código y la contraseña.\"}");
+            return;
+        }
+
+        String idEmpleado = codigo.strip();
+        String sql = """
+        SELECT contrasena_hash
+        FROM public.cuenta_empleado
+        WHERE id_empleado = ? AND activa
+        """;
+
+        // Consultar el hash de la cuenta activa y verificar la contraseña.
+        boolean coincide = false;
+        char[] contrasena = texto.toCharArray();
+
+        try (var conexion = ConexionPostgreSQL.conectar(); var consulta = conexion.prepareStatement(sql)) {
+            consulta.setString(1, idEmpleado);
+
+            try (var fila = consulta.executeQuery()) {
+                if (fila.next()) {
+                    var argon2 = Argon2Factory.create(Argon2Factory.Argon2Types.ARGON2id);
+                    coincide = argon2.verify(fila.getString("contrasena_hash"), contrasena);
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("Error al consultar la cuenta del empleado: " + e.getMessage());
+            responder(intercambio, 500, "{\"error\":\"No se pudo iniciar sesión.\"}");
+            return;
+        } finally {
+            Arrays.fill(contrasena, '\0');
+        }
+
+        // Usar el mismo mensaje para una cuenta inexistente, inactiva o con clave incorrecta.
+        if (!coincide) {
+            responder(intercambio, 401, "{\"error\":\"Código o contraseña incorrectos.\"}");
+            return;
+        }
+
+        // Crear un identificador aleatorio y asociarlo al empleado autenticado.
+        byte[] bytes = new byte[32];
+        ALEATORIO_SESION.nextBytes(bytes);
+        String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+
+        Instant ahora = Instant.now();
+        SESIONES.values().removeIf(sesion -> !sesion.venceEn().isAfter(ahora));
+        SESIONES.put(token, new SesionEmpleado(idEmpleado, ahora.plusSeconds(1800)));
+
+        // Devolver el identificador mediante una cookie que JavaScript no puede leer.
+        encabezados.set("Set-Cookie",
+                "polleria_sesion=" + token + "; Path=/api; Max-Age=1800; HttpOnly; SameSite=Strict");
+
+        responder(intercambio, 200, new Document("idEmpleado", idEmpleado).toJson());
+    }
+
+    private static String leerTokenSesion(HttpExchange intercambio) {
+        // Buscar nuestra cookie entre las que Chrome envía.
+        String cookies = intercambio.getRequestHeaders().getFirst("Cookie");
+        if (cookies == null) {
+            return null;
+        }
+
+        String prefijo = "polleria_sesion=";
+        for (String parte : cookies.split(";")) {
+            String cookie = parte.strip();
+            if (cookie.startsWith(prefijo)) {
+                return cookie.substring(prefijo.length());
+            }
+        }
+
+        return null;
+    }
+
+    private static SesionEmpleado obtenerSesionEmpleado(HttpExchange intercambio) {
+        // Consultar en Java si el identificador corresponde a una sesión vigente.
+        String token = leerTokenSesion(intercambio);
+        if (token == null) {
+            return null;
+        }
+
+        SesionEmpleado sesion = SESIONES.get(token);
+        if (sesion != null && !sesion.venceEn().isAfter(Instant.now())) {
+            SESIONES.remove(token, sesion);
+            return null;
+        }
+
+        return sesion;
+    }
+
+    private static void cerrarSesion(HttpExchange intercambio) throws IOException {
+        var encabezados = intercambio.getResponseHeaders();
+        encabezados.set("Access-Control-Allow-Origin", "http://127.0.0.1:5501");
+        encabezados.set("Access-Control-Allow-Credentials", "true");
+        encabezados.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+        encabezados.set("Content-Type", "application/json; charset=UTF-8");
+        encabezados.set("Cache-Control", "no-store");
+
+        // HttpServer también puede enviar a este método rutas con el mismo prefijo.
+        if (!"/api/logout".equals(intercambio.getRequestURI().getPath())) {
+            responder(intercambio, 404, "{\"error\":\"Ruta no encontrada.\"}");
+            return;
+        }
+
+        String metodo = intercambio.getRequestMethod();
+
+        // Responder a la consulta previa si el navegador la envía.
+        if ("OPTIONS".equals(metodo)) {
+            intercambio.sendResponseHeaders(204, -1);
+            intercambio.close();
+            return;
+        }
+
+        if (!"POST".equals(metodo)) {
+            encabezados.set("Allow", "POST, OPTIONS");
+            responder(intercambio, 405, "{\"error\":\"Método no permitido.\"}");
+            return;
+        }
+
+        // Verificar el origen de la página que solicita el cierre.
+        String origen = intercambio.getRequestHeaders().getFirst("Origin");
+        if (!"http://127.0.0.1:5501".equals(origen)) {
+            responder(intercambio, 403, "{\"error\":\"Origen no permitido.\"}");
+            return;
+        }
+
+        // Eliminar la sesión en Java. Si ya venció, también podemos borrar la cookie.
+        String token = leerTokenSesion(intercambio);
+        if (token != null) {
+            SESIONES.remove(token);
+        }
+
+        // Usar el mismo nombre y Path del login. Max-Age=0 hace vencer la cookie.
+        encabezados.set("Set-Cookie",
+                "polleria_sesion=; Path=/api; Max-Age=0; HttpOnly; SameSite=Strict");
+
+        // 204 confirma el cierre y deja la respuesta sin cuerpo.
+        intercambio.sendResponseHeaders(204, -1);
+        intercambio.close();
+    }
+
+    private static boolean autorizarAccionPedido(HttpExchange intercambio)
+            throws IOException {
+        // Comprobar el origen cuando el cliente envía ese encabezado.
+        String origen = intercambio.getRequestHeaders().getFirst("Origin");
+
+        if (origen != null && !"http://127.0.0.1:5501".equals(origen)) {
+            responder(intercambio, 403,
+                    new Document("error", "Origen no permitido.").toJson());
+            return false;
+        }
+
+        // Buscar la sesión en Java y comprobar que siga vigente.
+        if (obtenerSesionEmpleado(intercambio) == null) {
+            responder(intercambio, 401,
+                    new Document("error", "Inicia sesión para realizar esta acción.").toJson());
+            return false;
+        }
+
+        return true;
     }
 
     // Metodo auxiliar para enviar respuestas HTTP.
